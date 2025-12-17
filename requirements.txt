@@ -1,0 +1,20 @@
+# Document Understanding with LLMs - requirements.txt
+
+# Core dependencies
+streamlit>=1.47.0
+pandas>=1.5.3
+Pillow>=10.3.0
+pdf2image>=1.16.3
+numpy>=1.24.0
+openpyxl>=3.1.0
+
+# Image hashing for document boundary detection
+imagehash>=4.3.0
+
+# Oracle Cloud Infrastructure
+oci>=2.155.2
+
+# LangChain for LLM integration
+langchain
+langchain-core
+langchain-community
