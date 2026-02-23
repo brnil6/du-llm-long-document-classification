@@ -5,7 +5,7 @@ import os
 # OCI Compartment Configuration
 # ============================================================================
 COMPARTMENT_ID = "<your_compartment_id>"
-OCI_CONFIG_PROFILE = "DEFAULT"
+OCI_CONFIG_PROFILE = "PAUL"
 OCI_CONFIG_PATH = "~/.oci/config"
 
 # ============================================================================

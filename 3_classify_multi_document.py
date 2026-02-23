@@ -1,4 +1,8 @@
 """
+Copyright (c) 2025 Oracle and/or its affiliates.
+
+MIT License — see LICENSE for details.
+
 Multi-Document Bundle Classifier
 ================================
 Processes large PDF files (e.g., 70 pages) containing multiple scanned documents.
@@ -41,6 +45,12 @@ from oci_utils import (
     load_categories,
     create_chat_request,
     create_chat_details,
+    init_token_logging,
+    estimate_tokens,
+    log_token_usage,
+    log_session_summary,
+    get_token_totals,
+    get_log_file_path,
 )
 
 
@@ -325,7 +335,12 @@ Return ONLY the JSON array, no other text.
             .message.content[0]
             .text.strip()
         )
-        
+
+        # Log character usage for OCI billing
+        input_chars = len(prompt)
+        output_chars = len(response_text)
+        log_token_usage(1, input_chars, output_chars)
+
         # Clean markdown if present
         if response_text.startswith("```"):
             response_text = response_text.strip("`").strip()
@@ -377,7 +392,14 @@ def analyze_document_bundle(pdf_path: str, output_dir: str = OUTPUT_DIR) -> Bund
     """
     start_time = datetime.now()
     filename = os.path.basename(pdf_path)
-    
+
+    # Initialize token logging
+    init_token_logging(
+        script_name="multi_doc",
+        model_id=DEFAULT_MODEL_ID,
+        context=filename
+    )
+
     print("=" * 70)
     print(f"Multi-Document Bundle Classifier")
     print(f"File: {filename}")
@@ -456,7 +478,16 @@ def analyze_document_bundle(pdf_path: str, output_dir: str = OUTPUT_DIR) -> Bund
     
     if sensitive_count > 0:
         print(f"\n⚠️  Found {sensitive_count} potentially sensitive document(s)")
-    
+
+    # Log character usage summary
+    log_session_summary()
+    input_chars, output_chars, total_chars = get_token_totals()
+    print(f"\n📊 CHARACTER USAGE (OCI billing):")
+    print(f"  Input characters:  {input_chars:,}")
+    print(f"  Output characters: {output_chars:,}")
+    print(f"  Total characters:  {total_chars:,}")
+    print(f"  Log file: {get_log_file_path()}")
+
     # Save results
     os.makedirs(output_dir, exist_ok=True)
     output_filename = f"{os.path.splitext(filename)[0]}_analysis.json"
@@ -471,6 +502,11 @@ def analyze_document_bundle(pdf_path: str, output_dir: str = OUTPUT_DIR) -> Bund
         "processing_time_seconds": round(analysis.processing_time_seconds, 2),
         "model_used": analysis.model_used,
         "sensitive_documents_found": sensitive_count,
+        "character_usage": {
+            "input_chars": input_chars,
+            "output_chars": output_chars,
+            "total_chars": total_chars
+        },
         "documents": [
             {
                 "pages": f"{seg.start_page}-{seg.end_page}",

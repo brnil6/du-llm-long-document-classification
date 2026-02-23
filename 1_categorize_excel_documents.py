@@ -1,4 +1,9 @@
+
 """
+Copyright (c) 2025 Oracle and/or its affiliates.
+
+MIT License — see LICENSE for details.
+
 Excel Document Categorizer & Analyzer
 =====================================
 Categorizes documents from Excel file metadata using Llama 3.3, then analyzes results.
@@ -26,10 +31,16 @@ from oci_utils import (
     load_categories,
     create_chat_request,
     create_chat_details,
+    init_token_logging,
+    estimate_tokens,
+    log_token_usage,
+    log_session_summary,
+    get_token_totals,
+    get_log_file_path,
 )
 
 
-def predict_categories_batch(client, compartment_id, documents, categories):
+def predict_categories_batch(client, compartment_id, documents, categories, batch_num=0):
     """
     Predict categories for a batch of documents using OCI GenAI LLM.
     """
@@ -98,6 +109,11 @@ OUTPUT FORMAT (VERY IMPORTANT):
             .text.strip()
         )
 
+        # Log character usage for OCI billing
+        input_chars = len(prompt)
+        output_chars = len(response_text)
+        log_token_usage(batch_num, input_chars, output_chars)
+
         json_match = re.search(r"\{.*\}", response_text, re.DOTALL)
         if json_match:
             response_text = json_match.group()
@@ -128,12 +144,19 @@ OUTPUT FORMAT (VERY IMPORTANT):
         return {row_num: "Other" for row_num, _, _ in documents}
 
 
-def categorize_documents(input_file, output_file, sheet_name="HR", 
+def categorize_documents(input_file, output_file, sheet_name="HR",
                          filename_col=3, title_col=4, output_col=5,
                          batch_size=50):
     """
     Categorize documents in an Excel file.
     """
+    # Initialize token usage logging
+    init_token_logging(
+        script_name="excel_categorize",
+        model_id=DEFAULT_MODEL_ID,
+        context=input_file
+    )
+
     print("=" * 80)
     print("Document Categorization")
     print("=" * 80)
@@ -189,7 +212,7 @@ def categorize_documents(input_file, output_file, sheet_name="HR",
             f"Processing {len(batch)} documents (rows {batch[0][0]}-{batch[-1][0]})..."
         )
 
-        predictions = predict_categories_batch(client, compartment_id, batch, categories)
+        predictions = predict_categories_batch(client, compartment_id, batch, categories, batch_index)
 
         for row_num in predictions:
             category = predictions[row_num]
@@ -208,7 +231,12 @@ def categorize_documents(input_file, output_file, sheet_name="HR",
     workbook.save(output_file)
     print("✓ File saved successfully")
 
-    return output_file, processed, total_batches
+    # Log session summary
+    log_session_summary()
+    input_chars, output_chars, total_chars = get_token_totals()
+    print(f"\n📊 Usage logged to: {get_log_file_path()}")
+
+    return output_file, processed, total_batches, input_chars, output_chars, total_chars
 
 
 def analyze_results(excel_file, sheet_name="HR", original_col=2, predicted_col=5):
@@ -337,19 +365,23 @@ def main():
         analyze_results(args.input_file, args.sheet)
     else:
         # Categorize and optionally analyze
-        result_file, processed, batches = categorize_documents(
-            args.input_file, 
+        result_file, processed, batches, input_chars, output_chars, total_chars = categorize_documents(
+            args.input_file,
             output_file,
             args.sheet,
             batch_size=args.batch_size
         )
-        
+
         print("\n" + "=" * 80)
         print("CATEGORIZATION COMPLETE")
         print("=" * 80)
         print(f"Total documents processed: {processed}")
         print(f"Total API calls made: {batches} (batch processing)")
         print(f"Output file: {result_file}")
+        print(f"\n📊 CHARACTER USAGE (OCI billing):")
+        print(f"  Input characters:  {input_chars:,}")
+        print(f"  Output characters: {output_chars:,}")
+        print(f"  Total characters:  {total_chars:,}")
 
         if not args.skip_analysis:
             analyze_results(result_file, args.sheet)

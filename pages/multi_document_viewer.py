@@ -1,5 +1,8 @@
 # pages/multi_document_viewer.py
 """
+Copyright (c) 2025 Oracle and/or its affiliates.
+
+MIT License — see LICENSE for details.
 Multi-Document Bundle Viewer & Classifier
 =========================================
 Streamlit app for visually browsing multi-page PDF bundles and classifying 

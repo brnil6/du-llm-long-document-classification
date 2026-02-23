@@ -1,4 +1,8 @@
 """
+Copyright (c) 2025 Oracle and/or its affiliates.
+
+MIT License — see LICENSE for details.
+
 Single Document Classifier (Command Line)
 ==========================================
 Classifies a single document using OCI Document Understanding + Llama 3.3.
@@ -34,6 +38,12 @@ from oci_utils import (
     load_categories,
     create_chat_request,
     create_chat_details,
+    init_token_logging,
+    estimate_tokens,
+    log_token_usage,
+    log_session_summary,
+    get_token_totals,
+    get_log_file_path,
 )
 
 
@@ -161,7 +171,12 @@ Return ONLY a JSON object with this structure:
         .message.content[0]
         .text.strip()
     )
-    
+
+    # Log character usage for OCI billing
+    input_chars = len(prompt)
+    output_chars = len(response_text)
+    log_token_usage(1, input_chars, output_chars)
+
     # Clean markdown fences
     if response_text.startswith("```"):
         response_text = response_text.strip("`").strip()
@@ -183,7 +198,14 @@ def classify_single_document(file_path: str, output_dir: str = OUTPUT_DIR) -> di
     """
     start_time = datetime.now()
     filename = os.path.basename(file_path)
-    
+
+    # Initialize token logging
+    log_file = init_token_logging(
+        script_name="single_doc",
+        model_id=DEFAULT_MODEL_ID,
+        context=filename
+    )
+
     print("=" * 60)
     print("Single Document Classifier")
     print(f"File: {filename}")
@@ -221,7 +243,16 @@ def classify_single_document(file_path: str, output_dir: str = OUTPUT_DIR) -> di
             print(f"  - {alt.get('category')}: {alt.get('probability', 0):.0%}")
     
     print(f"\nProcessing time: {processing_time:.1f} seconds")
-    
+
+    # Log character usage summary
+    log_session_summary()
+    input_chars, output_chars, total_chars = get_token_totals()
+    print(f"\n📊 CHARACTER USAGE (OCI billing):")
+    print(f"  Input characters:  {input_chars:,}")
+    print(f"  Output characters: {output_chars:,}")
+    print(f"  Total characters:  {total_chars:,}")
+    print(f"  Log file: {get_log_file_path()}")
+
     # Save results
     os.makedirs(output_dir, exist_ok=True)
     output_filename = f"{os.path.splitext(filename)[0]}_classification.json"
@@ -232,7 +263,12 @@ def classify_single_document(file_path: str, output_dir: str = OUTPUT_DIR) -> di
         "classification": result,
         "processing_time_seconds": round(processing_time, 2),
         "model_used": "Meta Llama 3.3 70B Instruct",
-        "text_extracted_chars": len(document_text)
+        "text_extracted_chars": len(document_text),
+        "character_usage": {
+            "input_chars": input_chars,
+            "output_chars": output_chars,
+            "total_chars": total_chars
+        }
     }
     
     with open(output_path, 'w', encoding='utf-8') as f:

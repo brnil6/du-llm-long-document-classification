@@ -6,8 +6,12 @@ eliminating redundant initialization code across the codebase.
 """
 
 import json
-import oci
+import logging
+import os
+from datetime import datetime
 from typing import Tuple, List, Optional
+
+import oci
 
 from config import (
     COMPARTMENT_ID,
@@ -218,3 +222,158 @@ def get_langchain_llm(
         provider="meta",
         model_kwargs={"max_tokens": max_tokens, "temperature": temperature},
     )
+
+
+# ============================================================================
+# Token Usage Logging
+# ============================================================================
+
+# Global usage tracking state
+_token_logger = None
+_log_file_path = None
+_total_input_chars = 0
+_total_output_chars = 0
+_total_chars = 0
+
+
+def count_chars(text: str) -> int:
+    """Count characters in text for OCI billing purposes."""
+    if not text:
+        return 0
+    return len(text)
+
+
+# Keep estimate_tokens for backwards compatibility
+def estimate_tokens(text: str) -> int:
+    """
+    Estimate token count for text.
+    Uses ~4 characters per token as a rough approximation for LLMs.
+    """
+    if not text:
+        return 0
+    return len(text) // 4
+
+
+def setup_token_logger(script_name: str = "token_usage") -> Tuple[logging.Logger, str]:
+    """
+    Set up a logger for token usage that writes to logs folder.
+
+    Args:
+        script_name: Prefix for the log file name
+
+    Returns:
+        Tuple of (logger, log_file_path)
+    """
+    # Use the directory where this module is located
+    logs_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), "logs")
+    os.makedirs(logs_dir, exist_ok=True)
+
+    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+    log_file = os.path.join(logs_dir, f"{script_name}_{timestamp}.log")
+
+    logger = logging.getLogger(f"token_usage_{script_name}")
+    logger.setLevel(logging.INFO)
+
+    # Clear any existing handlers
+    logger.handlers = []
+
+    # File handler
+    file_handler = logging.FileHandler(log_file)
+    file_handler.setLevel(logging.INFO)
+    formatter = logging.Formatter("%(asctime)s | %(message)s", datefmt="%Y-%m-%d %H:%M:%S")
+    file_handler.setFormatter(formatter)
+    logger.addHandler(file_handler)
+
+    return logger, log_file
+
+
+def init_token_logging(script_name: str = "usage", model_id: str = None, context: str = None):
+    """
+    Initialize usage logging for a script run.
+
+    Args:
+        script_name: Name prefix for the log file
+        model_id: Model being used (for logging)
+        context: Additional context info (e.g., input file name)
+    """
+    global _token_logger, _log_file_path, _total_input_chars, _total_output_chars, _total_chars
+
+    # Reset counters
+    _total_input_chars = 0
+    _total_output_chars = 0
+    _total_chars = 0
+
+    _token_logger, _log_file_path = setup_token_logger(script_name)
+
+    _token_logger.info("=" * 80)
+    if context:
+        _token_logger.info(f"Context: {context}")
+    if model_id:
+        _token_logger.info(f"Model: {model_id}")
+    _token_logger.info("Note: OCI charges per character (input + output same rate)")
+    _token_logger.info("=" * 80)
+
+    return _log_file_path
+
+
+def get_token_logger() -> logging.Logger:
+    """Get the current token logger, initializing if needed."""
+    global _token_logger, _log_file_path
+    if _token_logger is None:
+        _token_logger, _log_file_path = setup_token_logger()
+    return _token_logger
+
+
+def get_log_file_path() -> str:
+    """Get the current log file path."""
+    return _log_file_path
+
+
+def log_token_usage(call_id: int, input_chars: int, output_chars: int, total_chars: int = None):
+    """
+    Log character usage for a single API call (OCI billing).
+
+    Args:
+        call_id: Identifier for this call (batch number, call number, etc.)
+        input_chars: Input/prompt character count
+        output_chars: Output/completion character count
+        total_chars: Total chars (calculated if not provided)
+    """
+    global _total_input_chars, _total_output_chars, _total_chars
+
+    if total_chars is None:
+        total_chars = input_chars + output_chars
+
+    _total_input_chars += input_chars
+    _total_output_chars += output_chars
+    _total_chars += total_chars
+
+    logger = get_token_logger()
+    logger.info(
+        f"Call {call_id:3d} | "
+        f"Input: {input_chars:7d} | "
+        f"Output: {output_chars:6d} | "
+        f"Total: {total_chars:7d} | "
+        f"Cumulative: {_total_chars:9d}"
+    )
+
+
+def log_session_summary():
+    """Log the final summary of character usage for OCI billing."""
+    logger = get_token_logger()
+    logger.info("=" * 80)
+    logger.info("SESSION SUMMARY (characters)")
+    logger.info(f"Total Input Characters:  {_total_input_chars:10d}")
+    logger.info(f"Total Output Characters: {_total_output_chars:10d}")
+    logger.info(f"Total Characters:        {_total_chars:10d}")
+    logger.info("=" * 80)
+
+
+def get_token_totals() -> Tuple[int, int, int]:
+    """
+    Get the current character totals for OCI billing.
+
+    Returns:
+        Tuple of (input_chars, output_chars, total_chars)
+    """
+    return _total_input_chars, _total_output_chars, _total_chars
