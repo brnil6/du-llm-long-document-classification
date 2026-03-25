@@ -111,7 +111,7 @@ Upload a multi-page PDF bundle to:
 1. **Clone the repository**
    ```bash
    git clone <repository-url>
-   cd uksbs-runtime
+   cd <du-llm-long-document-classification>
    ```
 
 2. **Create virtual environment**

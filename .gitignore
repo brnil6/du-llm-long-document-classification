@@ -95,6 +95,7 @@ outputs/
 output/
 bench_out/
 samples/
+results/
 *.du_llm.json
 *.dynamic_extraction.json
 
